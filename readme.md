@@ -24,3 +24,8 @@ Example:
 4) 8->6 (switch files before 6 waypoint)
 5) 7->5 (switch files before 5 waypoint)
 and so on...
+
+Also, if flight plan will be contained any VORs, they will be saved in ADC file, for DME corrections.
+But without their freqs, because LNM don't save it.
+
+At the end, a TXT file will be created that contains a list of all points with their location in the files. 
