@@ -92,9 +92,12 @@ func CreateAWCFile(awcFile *AWCFile) {
 		fmt.Println(err.Error())
 		os.Exit(0)
 	}
-
 }
 
+func PrintUsage() {
+	fmt.Println("Usage:")
+	fmt.Println("\tlncivaconv [-1] flightplan.lnmpln")
+}
 
 func main() {
 	waypoints := make([]Waypoint, 0)
@@ -106,12 +109,21 @@ func main() {
 
 	if len(os.Args) < 2 {
 		fmt.Println("No filename given. Exiting.")
-		fmt.Println("Usage:")
-		fmt.Println("\tlncivaconv flightplan.lnmpln")
+		PrintUsage()
 		os.Exit(0)
 	}
 
+	dropFirstWP := true
 	var lnmFileName = os.Args[1]
+	if lnmFileName == "-1" {
+		dropFirstWP = false
+		if len(os.Args) < 3 {
+			fmt.Println("No filename given. Exiting.")
+			PrintUsage()
+			os.Exit(0)
+		}
+		lnmFileName = os.Args[2]
+	}
 
 	if !strings.Contains(lnmFileName, string(os.PathSeparator)) {
 		currDir, _ := os.Getwd()
@@ -189,21 +201,25 @@ func main() {
 	}
 	destination = ident
 
-	//waypoints = waypoints[1:] //remove departure waypoint
-
 	fmt.Printf("%s -> %s\n", departure, destination)
 	fmt.Printf("waypoints cnt: %d\n", len(waypoints))
 
 	awcFile := AWCFile {
 		name: departure + "-" + destination,
 	}
-	posCnt := 2 //first waypoint of first file always start from 2
+
+	posCnt := 2 //by default first waypoint of first file always start from 2
+	if !dropFirstWP {
+		posCnt = 1 //if no need to skip first waypoint
+	}
 	awcFileIdx := 1 //index current file
 	for idx := range waypoints {
 
-		if idx == 0 {
-			//skip departure waypoint
-			continue
+		if dropFirstWP {
+			if idx == 0 {
+				//skip departure waypoint
+				continue
+			}
 		}
 
 		awcWaypoint := AWCWaypoint{
