@@ -14,6 +14,7 @@ type Waypoint struct {
 	lon float64  //waypoint longitude
 	lat float64  // waypoint latitude
 	ident string // waypoint ident
+	isVOR bool //is waypoint VOR
 }
 
 type AWCWaypoint struct {
@@ -21,6 +22,7 @@ type AWCWaypoint struct {
 	lon string //waypoint longitude
 	lat string // waypoint ident
 	ident string // waypoint ident, for comments
+	isVOR bool //is waypoint VOR
 }
 
 type AWCFile struct {
@@ -63,16 +65,26 @@ func DegreeToAWCString(value float64, isLon bool) string {
 }
 
 
-func CreateAWCFile(awcFile *AWCFile) {
-	file, err := os.Create(awcFile.name+".AWC")
+func CreateAWCFile(awcFile *AWCFile, isADC bool) {
+
+	fileName := awcFile.name+".AWC"
+	if isADC {
+		fileName = awcFile.name+".ADC"
+	}
+
+	file, err := os.Create(fileName)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(0)
 	}
 	defer file.Close()
 
+	if isADC {
+		_, err = fmt.Fprint(file, ";\n; Carousel IV-A ADEU DME Card File\n;\n")
+	} else {
+		_, err = fmt.Fprint(file, ";\n; Carousel IV-A INS\n; ADEU Waypoints Data Card\n;\n")
+	}
 
-	_, err = fmt.Fprint(file, ";\n; Carousel IV-A INS\n; ADEU Waypoints Data Card\n;\n")
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(0)
@@ -94,6 +106,14 @@ func CreateAWCFile(awcFile *AWCFile) {
 	}
 }
 
+func IncWptCnt(wptCnt *int) {
+	if *wptCnt == 9 {
+		*wptCnt = 1
+	} else {
+		*wptCnt++
+	}
+}
+
 func PrintUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("\tlncivaconv [-1] flightplan.lnmpln")
@@ -101,7 +121,6 @@ func PrintUsage() {
 
 func main() {
 	waypoints := make([]Waypoint, 0)
-	awcFiles := make([]AWCFile, 0)
 
 	var departure string
 	var destination string
@@ -142,8 +161,10 @@ func main() {
 
 		hasIdent := false
 		hasPos := false
+		hasType := false
 		var lon float64
 		var lat float64
+		isVOR := false
 
 		for s := range xml.Childs {
 			//fmt.Printf("%s: %s\n", s, xml.Childs[s][0].InnerText)
@@ -154,6 +175,14 @@ func main() {
 					departure = ident
 				}
 				hasIdent = true
+			}
+
+			if strings.ToLower(s) == "type" {
+				hasType = true
+				wptType := xml.Childs[s][0].InnerText
+				if strings.ToLower(wptType) == "vor" {
+					isVOR = true
+				}
 			}
 
 			if strings.ToLower(s) == "pos" {
@@ -188,11 +217,12 @@ func main() {
 				hasPos = true
 			} //if pos
 
-			if hasPos && hasIdent {
+			if hasPos && hasIdent && hasType {
 				waypoint := Waypoint {
 					lat: lat,
 					lon: lon,
 					ident: ident,
+					isVOR: isVOR,
 				}
 				waypoints = append(waypoints, waypoint)
 				break
@@ -204,15 +234,20 @@ func main() {
 	fmt.Printf("%s -> %s\n", departure, destination)
 	fmt.Printf("waypoints cnt: %d\n", len(waypoints))
 
+	// Creating AWC files
+	awcFiles := make([]AWCFile, 0)
+	posCnt := 2 //by default first waypoint of first file always start from 2
+	maxWPTs := 8 //max waypoints in file, first file contain 8 without wpt 1
+	awcFileIdx := 1 //index of current file
+	if !dropFirstWP {
+		posCnt = 1 //if no need to skip first waypoint
+		maxWPTs = 9
+	}
+
 	awcFile := AWCFile {
 		name: departure + "-" + destination,
 	}
 
-	posCnt := 2 //by default first waypoint of first file always start from 2
-	if !dropFirstWP {
-		posCnt = 1 //if no need to skip first waypoint
-	}
-	awcFileIdx := 1 //index current file
 	for idx := range waypoints {
 
 		if dropFirstWP {
@@ -225,50 +260,30 @@ func main() {
 		awcWaypoint := AWCWaypoint{
 			posCnt: posCnt,
 			ident: waypoints[idx].ident,
+			isVOR: waypoints[idx].isVOR,
 		}
 
 		awcWaypoint.lat = DegreeToAWCString(waypoints[idx].lat, false)
 		awcWaypoint.lon = DegreeToAWCString(waypoints[idx].lon, true)
 		awcFile.waypoints = append(awcFile.waypoints, awcWaypoint)
+		IncWptCnt(&posCnt)
 
-		if awcFileIdx == 1 {
-			//first file start from 2 to 9
-			if posCnt == 9 {
-				awcFiles = append(awcFiles, awcFile)
-				//reset waypoint position to 1
-				posCnt = 1
-				//create new file record
-				awcFile = AWCFile{
-					name: departure + "-" + destination,
-				}
-				awcFileIdx ++
-				continue
+		if len(awcFile.waypoints) == maxWPTs {
+			awcFiles = append(awcFiles, awcFile)
+			awcFile = AWCFile{
+				name: departure + "-" + destination,
 			}
-		}
+			awcFileIdx ++
 
-		if awcFileIdx > 1 {
-			//second file start from 1 to 8 and others from 9 to 8
-			if posCnt == 8 {
-				awcFiles = append(awcFiles, awcFile)
-				//reset waypoint position to 9
-				posCnt = 9
-				//create new file record
-				awcFile = AWCFile{
-					name: departure + "-" + destination,
-				}
-				awcFileIdx ++
-				continue
+			if awcFileIdx == 1 {
+				maxWPTs = 8
 			}
+			continue
 		}
 
 		if idx == len(waypoints) - 1 {
 			awcFiles = append(awcFiles, awcFile)
 			break
-		}
-
-		posCnt++
-		if posCnt == 10 {
-			posCnt = 1
 		}
 	}
 
@@ -280,12 +295,60 @@ func main() {
 	}
 
 	for idx := range awcFiles {
-		CreateAWCFile(&awcFiles[idx])
+		CreateAWCFile(&awcFiles[idx], false)
 		//fmt.Printf("File name: %s\n", awcFiles[idx].name)
 		//for widx := range awcFiles[idx].waypoints {
 		//	wpt := awcFiles[idx].waypoints[widx]
 		//	fmt.Printf("%d %s %s ; %s\n", wpt.posCnt, wpt.lat, wpt.lon, wpt.ident)
 		//}
 	}
-	fmt.Printf("Created %d file(s)\n", len(awcFiles))
+	fmt.Printf("Created %d wpt file(s)\n", len(awcFiles))
+
+	//Creating ADC files
+	adcFiles := make([]AWCFile, 0)
+	adcFileIdx := 1 //index of current file
+	posCnt = 1 //ADC files start from 1
+	vorWPTCnt := 0 //count of VOR waypoints
+	adcFile := AWCFile {
+		name: departure + "-" + destination,
+	}
+	for idx := range waypoints {
+		if waypoints[idx].isVOR {
+
+			vorWPTCnt++
+			adcWaypoint := AWCWaypoint{
+				posCnt: posCnt,
+				ident:  waypoints[idx].ident,
+				isVOR:  waypoints[idx].isVOR,
+			}
+			adcWaypoint.lat = DegreeToAWCString(waypoints[idx].lat, false)
+			adcWaypoint.lon = DegreeToAWCString(waypoints[idx].lon, true)
+			adcFile.waypoints = append(adcFile.waypoints, adcWaypoint)
+			IncWptCnt(&posCnt)
+
+			if len(adcFile.waypoints) == 9 {
+				adcFiles = append(adcFiles, awcFile)
+				adcFile = AWCFile{
+					name: departure + "-" + destination,
+				}
+				adcFileIdx++
+				posCnt = 1
+				continue
+			}
+		}
+		if idx == len(waypoints) - 1 {
+			adcFiles = append(adcFiles, adcFile)
+			break
+		}
+	}
+
+	fmt.Printf("VOR waypoints cnt: %d\n", vorWPTCnt)
+	if vorWPTCnt == 0 {
+		os.Exit(1)
+	}
+	for idx := range adcFiles {
+		CreateAWCFile(&adcFiles[idx], true)
+	}
+	fmt.Printf("Created %d ADC file(s)\n", len(adcFiles))
+	os.Exit(1)
 }

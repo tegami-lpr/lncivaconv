@@ -2,3 +2,6 @@ vendor
 *.lnmpln
 *.sum
 *.exe
+*.awc
+*.adc
+
