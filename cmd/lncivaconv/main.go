@@ -394,13 +394,12 @@ func main() {
 	}
 
 	fmt.Printf("VOR waypoints cnt: %d\n", vorWPTCnt)
-	if vorWPTCnt == 0 {
-		os.Exit(1)
+	if vorWPTCnt > 0 {
+		for idx := range adcFiles {
+			CreateAWCFile(&adcFiles[idx], true)
+		}
+		fmt.Printf("Created %d ADC file(s)\n", len(adcFiles))
 	}
-	for idx := range adcFiles {
-		CreateAWCFile(&adcFiles[idx], true)
-	}
-	fmt.Printf("Created %d ADC file(s)\n", len(adcFiles))
 
 	CreateTxtFile(departure+"-"+destination, waypoints)
 	fmt.Println("Created TXT file")
